@@ -1,0 +1,29 @@
+Source: g4music
+Section: misc
+Priority: optional
+Maintainer: Bardia Moshiri <fakeshell@bardia.tech>
+Build-Depends: debhelper-compat (= 13),
+               valac,
+               meson,
+               ninja-build,
+               libgstreamer1.0-dev,
+               libgstreamer-plugins-base1.0-dev,
+               libgtk-4-dev,
+               libadwaita-1-dev,
+               gettext,
+               libglib2.0-dev,
+               libglib2.0-bin,
+               desktop-file-utils,
+               libdbus-1-dev
+
+Package: g4music
+Architecture: any
+Depends: ${shlibs:Depends}, 
+         ${misc:Depends}, 
+         libgstreamer1.0-0,
+         libgtk-4-1,
+         libadwaita-1-0,
+         libglib2.0-0,
+         dbus
+Description: A fast, fluent, light weight music player written in GTK4,
+ with a beautiful, adaptive user interface, focuses on high performance.
