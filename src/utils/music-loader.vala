@@ -176,7 +176,15 @@ namespace G4 {
         public async void add_files_async (File[] files, bool ignore_exists = false, bool include_playlist = true) {
             var musics = new GenericArray<Music> (4096);
             yield load_files_async (files,  musics, ignore_exists, include_playlist);
-            _store.splice (_store.get_n_items (), 0, musics.data);
+
+            uint n_items = _store.get_n_items();
+            GLib.Object[] objectArray = new GLib.Object[musics.data.length];
+
+            for (uint i = 0; i < musics.data.length; i++) {
+                 objectArray[i] = (GLib.Object) musics.data[i];
+             }
+
+             _store.splice(n_items, 0, objectArray);
         }
 
         public async void load_files_async (owned File[] files, GenericArray<Music> musics, bool ignore_exists = false, bool include_playlist = true) {

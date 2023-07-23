@@ -338,15 +338,31 @@ namespace G4 {
             return true;
         }
 
-        private void on_music_batch_changed () {
+        private void on_music_batch_changed() {
             var arr = new GenericArray<Music> (1024);
-            _library.albums.foreach ((name, album) => arr.add (album.cover_music));
-            arr.sort (Music.compare_by_album);
-            _album_list.data_store.splice (0, _album_list.data_store.get_n_items (), arr.data);
-            arr.length = 0; 
-            _library.artists.foreach ((name, artist) => arr.add (artist.cover_music));
-            arr.sort (Music.compare_by_artist);
-            _artist_list.data_store.splice (0, _artist_list.data_store.get_n_items (), arr.data);
+    
+            _library.albums.foreach ((name, album) => arr.add(album.cover_music));
+            arr.sort(Music.compare_by_album);
+            uint n_items_album = _album_list.data_store.get_n_items();
+            GLib.Object[] albumObjectArray = new GLib.Object[n_items_album];
+
+            for (uint i = 0; i < n_items_album; i++) {
+                albumObjectArray[i] = (GLib.Object) arr.data[i];
+            }
+
+            _album_list.data_store.splice(0, n_items_album, albumObjectArray);
+            arr.length = 0;
+    
+            _library.artists.foreach ((name, artist) => arr.add(artist.cover_music));
+            arr.sort(Music.compare_by_artist);
+            uint n_items_artist = _artist_list.data_store.get_n_items();
+            GLib.Object[] artistObjectArray = new GLib.Object[n_items_artist];
+
+            for (uint i = 0; i < n_items_artist; i++) {
+                artistObjectArray[i] = (GLib.Object) arr.data[i];
+            }
+
+            _artist_list.data_store.splice(0, n_items_artist, artistObjectArray);
         }
 
         private void on_search_btn_toggled () {
