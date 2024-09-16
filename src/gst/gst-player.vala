@@ -24,7 +24,7 @@ namespace G4 {
             });
         }
 
-        private dynamic Gst.Pipeline? _pipeline = Gst.ElementFactory.make ("playbin", "player") as Gst.Pipeline;
+        private dynamic Gst.Pipeline? _pipeline = null;
         private dynamic Gst.Element? _audio_sink = null;
         private dynamic Gst.Element? _replay_gain = null;
         private string _audio_sink_name = "";
@@ -37,6 +37,8 @@ namespace G4 {
         private LevelCalculator _peak_calculator = new LevelCalculator ();
         private Gst.State _state = Gst.State.NULL;
         private bool _seeking = false;
+        private Gst.TagList? _tag_list = null;
+        private uint _tag_handle = 0;
         private bool _tag_parsed = false;
         private uint _timer_handle = 0;
         private unowned Thread<void> _main_thread = Thread<void>.self ();
@@ -51,6 +53,16 @@ namespace G4 {
         public signal void tag_parsed (string? uri, Gst.TagList? tags);
 
         public GstPlayer () {
+            uint major = 0, minor = 0, micro = 0, nano = 0;
+            Gst.version (out major, out minor, out micro, out nano);
+            if (major > 1 || (major == 1 && minor >= 24)) {
+                _pipeline = Gst.ElementFactory.make ("playbin3", "player") as Gst.Pipeline;
+                if (_pipeline != null) {
+                    print (@"Use playbin3\n");
+            }
+            } if (_pipeline == null) {
+                _pipeline = Gst.ElementFactory.make ("playbin", "player") as Gst.Pipeline;
+            }
             if (_pipeline != null) {
                 var pipeline = (!)_pipeline;
                 pipeline.async_handling = true;
@@ -63,6 +75,10 @@ namespace G4 {
         }
 
         ~GstPlayer () {
+            if (_tag_handle != 0)
+                Source.remove (_tag_handle);
+            if (_timer_handle != 0)
+                Source.remove (_timer_handle);
             _peak_calculator.clear ();
             _pipeline?.set_state (Gst.State.NULL);
         }
@@ -108,13 +124,9 @@ namespace G4 {
                 return _current_uri;
             }
             set {
-                if (_pipeline != null) lock (_pipeline) {
-                    _current_uri = value;
-                    _duration = Gst.CLOCK_TIME_NONE;
-                    _position = Gst.CLOCK_TIME_NONE;
-                    _tag_parsed = false;
+                _current_uri = value;
+                if (_pipeline != null)
                     ((!)_pipeline).uri = value;
-                }
             }
         }
 
@@ -157,6 +169,15 @@ namespace G4 {
             }
         }
 
+        public Gst.ClockTime position {
+            get {
+                return _position;
+            }
+            set {
+                seek (value);
+            }
+        }
+
         public uint replay_gain {
             get {
                 if (_replay_gain != null)
@@ -188,6 +209,16 @@ namespace G4 {
                 //  print ("Seek: %g -> %g\n", to_second (_position), to_second (position));
                 _seeking = ((!)_pipeline).seek_simple (Gst.Format.TIME, Gst.SeekFlags.ACCURATE | Gst.SeekFlags.FLUSH, (int64) position);
             }
+        }
+
+        private void emit_tag_parsed (uint delay = 0) {
+            if (_tag_handle != 0)
+                Source.remove (_tag_handle);
+            _tag_handle = run_timeout_once (delay, () => {
+                _tag_handle = 0;
+                _tag_parsed = true;
+                tag_parsed (_current_uri, _tag_list);
+            });
         }
 
         private bool bus_callback (Gst.Bus bus, Gst.Message message) {
@@ -238,13 +269,18 @@ namespace G4 {
 
                 case Gst.MessageType.STREAM_START:
                     on_stream_start ();
+                    if (!_tag_parsed) {
+                        emit_tag_parsed (50);
+                    }
                     break;
 
                 case Gst.MessageType.TAG:
                     Gst.TagList? tags = null;
                     message.parse_tag (out tags);
-                    _tag_parsed = true;
-                    tag_parsed (_current_uri, tags);
+                    _tag_list = merge_tags (_tag_list, tags);
+                    if (!_tag_parsed) {
+                        emit_tag_parsed (tags_has_image (_tag_list) ? 0 : 50);
+                    }
                     break;
 
                 default:
@@ -253,14 +289,6 @@ namespace G4 {
         }
 
         private void on_state_changed (Gst.State old, Gst.State state) {
-            if (old == Gst.State.READY && state == Gst.State.PAUSED) {
-                parse_duration ();
-                if (!_tag_parsed) {
-                    //  Hack: force emit if no tag parsed for MOD files
-                    _tag_parsed = true;
-                    tag_parsed (_current_uri, null);
-                }
-            }
             if (old != state && _state != state) {
                 _state = state;
                 state_changed (state);
@@ -275,12 +303,14 @@ namespace G4 {
         }
 
         private void on_stream_start () {
+            _peak_calculator.clear ();
+            _tag_list = null;
+            _tag_parsed = false;
             if (AtomicInt.compare_and_exchange (ref _next_uri_requested, 1, 0)) {
-                _peak_calculator.clear ();
                 next_uri_start ();
-                parse_duration ();
-                parse_position ();
             }
+            parse_duration ();
+            parse_position ();
         }
 
         private void on_stream_to_finish () {
@@ -294,12 +324,16 @@ namespace G4 {
         private void parse_duration () {
             if (((!)_pipeline).query_duration (Gst.Format.TIME, out _duration)) {
                 duration_changed (_duration);
+            } else {
+                _duration = Gst.CLOCK_TIME_NONE;
             }
         }
 
         private bool parse_position () {
             if (((!)_pipeline).query_position (Gst.Format.TIME, out _position)) {
                 position_updated (_position);
+            } else {
+                _position = Gst.CLOCK_TIME_NONE;
             }
             return true;
         }
